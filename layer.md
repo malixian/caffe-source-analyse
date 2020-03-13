@@ -227,6 +227,8 @@ end
 - 通过im2col优化后
 ```
 // 输入参数为：im2col_cpu(一幅图像，输入图像的channel, 输入图像的height, 输入图像的width, kernel的height, kernel的width, pad的height, pad的width, stride的height， stride的width)
+//dilation:膨胀系数，卷积核膨胀是将卷积核扩张到膨胀尺度约束的尺度中，并将原卷积核没有占用的区域填充零
+// 在有膨胀稀疏下，kernel_h = dilation_h * (kernel_h - 1) + 1
 void im2col_cpu(const Dtype* data_im, const int channels,
     const int height, const int width, const int kernel_h, const int kernel_w,
     const int pad_h, const int pad_w,
@@ -246,6 +248,7 @@ void im2col_cpu(const Dtype* data_im, const int channels,
       for (int kernel_col = 0; kernel_col < kernel_w; kernel_col++) {
         int input_row = -pad_h + kernel_row * dilation_h;
         for (int output_rows = output_h; output_rows; output_rows--) {
+          // 溢出边界补0
           if (!is_a_ge_zero_and_a_lt_b(input_row, height)) {
             for (int output_cols = output_w; output_cols; output_cols--) {
               *(data_col++) = 0;
@@ -256,6 +259,7 @@ void im2col_cpu(const Dtype* data_im, const int channels,
               if (is_a_ge_zero_and_a_lt_b(input_col, width)) {
                 *(data_col++) = data_im[input_row * width + input_col];
               } else {
+                 // 溢出边界补0
                 *(data_col++) = 0;
               }
               input_col += stride_w;
