@@ -206,3 +206,65 @@ inline void conv_im2col_cpu(const Dtype* data, Dtype* col_buff) {
   }
 
 ```
+- 卷积计算的核心函数 im2col，将image图片窗口内的图像（flat）转换为一列 （在util/im2col.cpp中可以看到），通过im2col函数可以将卷积操作变成两个矩阵相乘。此优化是贾扬清对卷积操作的一个优化，正常的卷积操作如下所示
+```
+  //如果不用这样的操作，贾扬清有一个吐槽，对于输入大小为W*H，维度为D的blob，卷积核为M*K*K，那么如果利用for循环，会是这样的一个操作，6层for循环，计算效率是极其低下的。
+  for w in 1..W
+ for h in 1..H
+   for x in 1..K
+     for y in 1..K
+       for m in 1..M
+         for d in 1..D
+           output(w, h, m) += input(w+x, h+y, d) * filter(m, x, y, d)
+         end
+       end
+     end
+   end
+ end
+end
+
+```
+- 通过im2col优化后
+```
+// 输入参数为：im2col_cpu(一幅图像，输入图像的channel, 输入图像的height, 输入图像的width, kernel的height, kernel的width, pad的height, pad的width, stride的height， stride的width)
+void im2col_cpu(const Dtype* data_im, const int channels,
+    const int height, const int width, const int kernel_h, const int kernel_w,
+    const int pad_h, const int pad_w,
+    const int stride_h, const int stride_w,
+    const int dilation_h, const int dilation_w,
+    Dtype* data_col) {
+  // 卷积后输出的高度
+  const int output_h = (height + 2 * pad_h -
+    (dilation_h * (kernel_h - 1) + 1)) / stride_h + 1;
+  // 卷积后输出的宽度
+  const int output_w = (width + 2 * pad_w -
+    (dilation_w * (kernel_w - 1) + 1)) / stride_w + 1;
+  // 
+  const int channel_size = height * width;
+  for (int channel = channels; channel--; data_im += channel_size) {
+    for (int kernel_row = 0; kernel_row < kernel_h; kernel_row++) {
+      for (int kernel_col = 0; kernel_col < kernel_w; kernel_col++) {
+        int input_row = -pad_h + kernel_row * dilation_h;
+        for (int output_rows = output_h; output_rows; output_rows--) {
+          if (!is_a_ge_zero_and_a_lt_b(input_row, height)) {
+            for (int output_cols = output_w; output_cols; output_cols--) {
+              *(data_col++) = 0;
+            }
+          } else {
+            int input_col = -pad_w + kernel_col * dilation_w;
+            for (int output_col = output_w; output_col; output_col--) {
+              if (is_a_ge_zero_and_a_lt_b(input_col, width)) {
+                *(data_col++) = data_im[input_row * width + input_col];
+              } else {
+                *(data_col++) = 0;
+              }
+              input_col += stride_w;
+            }
+          }
+          input_row += stride_h;
+        }
+      }
+    }
+  }
+}
+```
